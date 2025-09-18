@@ -35,7 +35,7 @@ def get_ip_location():
         return {"ipapi": ip_info, "ipapi2": ip_info2}
     except Exception as e:
         log("IP lookup failed", str(e))
-        return {str(e)}
+        return {"error": str(e)}
 
 ip_location = get_ip_location()
 
