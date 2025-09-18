@@ -156,6 +156,22 @@ if "visit_logged" not in st.session_state:
     except Exception as e:
         st.warning(f"Failed to log page visit: {e}")   
 
+if "visit_logged" not in st.session_state:
+    current_ip = get_ip_location()
+    current_geo = get_browser_geolocation()
+    visit_payload = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ip_location": current_ip,
+        "geo_location": current_geo
+    }
+    visit_url = f"{SUPABASE_URL}/rest/v1/{VISIT_TABLE}"
+    try:
+        with httpx.Client(verify=False) as client:
+            client.post(visit_url, headers=HEADERS, json=visit_payload)
+        st.session_state.visit_logged = True  # ensure only logged once per session   
+    except Exception as e:
+        st.warning(f"Failed to log page visit: {e}")   
+
 # -------------------- Fetch Chat --------------------
 def fetch_chat():
     url = f"{SUPABASE_URL}/rest/v1/{CHAT_TABLE}?select=*&order=created_at.asc"
