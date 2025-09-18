@@ -35,7 +35,7 @@ def get_ip_location():
         return {"ipapi": ip_info, "ipapi2": ip_info2}
     except Exception as e:
         log("IP lookup failed", str(e))
-        return {}
+        return {str(e)}
 
 ip_location = get_ip_location()
 
@@ -85,19 +85,21 @@ if not st.session_state.consent_given:
         st.session_state.consent_given = True
 
 # -------------------- Log Page Visit --------------------
-ip_location2 = get_ip_location()
-browser_geo = get_browser_geolocation()
-visit_payload = {
-    "created_at": datetime.now(timezone.utc).isoformat(),
-    "ip_location": ip_location2,
-    "geo_location": browser_geo
-}
-visit_url = f"{SUPABASE_URL}/rest/v1/{VISIT_TABLE}"
-try:
-    with httpx.Client(verify=False) as client:
-        client.post(visit_url, headers=HEADERS, json=visit_payload)
-except Exception as e:
-    st.warning(f"Failed to log page visit: {e}")
+if "visit_logged" not in st.session_state:
+    current_ip = get_ip_location()
+    current_geo = get_browser_geolocation()
+    visit_payload = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ip_location": current_ip,
+        "geo_location": current_geo
+    }
+    visit_url = f"{SUPABASE_URL}/rest/v1/{VISIT_TABLE}"
+    try:
+        with httpx.Client(verify=False) as client:
+            client.post(visit_url, headers=HEADERS, json=visit_payload)
+        st.session_state.visit_logged = True  # ensure only logged once per session
+    except Exception as e:
+        st.warning(f"Failed to log page visit: {e}")
 
 # -------------------- Fetch Chat --------------------
 def fetch_chat():
@@ -131,6 +133,10 @@ if st.session_state.consent_given:
             if username.strip() == "":
                 st.warning("Please enter your name before sending a message.")
             elif user_input or attachment:
+                # get fresh IP + geolocation per message
+                msg_ip = get_ip_location()
+                msg_geo = get_browser_geolocation()
+
                 attachment_url = None
                 attachment_name = None
                 attachment_type = None
@@ -140,7 +146,8 @@ if st.session_state.consent_given:
                     file_name = f"{datetime.now().timestamp()}_{attachment.name}"
                     storage_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{file_name}"
                     with httpx.Client(verify=False) as client:
-                        r = client.put(storage_url, headers={"Authorization": f"Bearer {SUPABASE_KEY}"}, content=file_bytes)
+                        r = client.put(storage_url, headers={"Authorization": f"Bearer {SUPABASE_KEY}"},
+                                       content=file_bytes)
                         if r.status_code in (200, 201):
                             attachment_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{file_name}"
                     attachment_name = attachment.name
@@ -152,11 +159,10 @@ if st.session_state.consent_given:
                     "attachment_name": attachment_name,
                     "attachment_url": attachment_url,
                     "attachment_type": attachment_type,
-                    "ip_location": ip_location,
-                    "geo_location": browser_geo
+                    "ip_location": msg_ip,
+                    "geo_location": msg_geo
                 }
 
-                # Insert into Supabase
                 insert_url = f"{SUPABASE_URL}/rest/v1/{CHAT_TABLE}"
                 with httpx.Client(verify=False) as client:
                     client.post(insert_url, headers=HEADERS, json=new_msg)
