@@ -30,57 +30,31 @@ def log(name, data):
     print(data)
     print(f"[{timestamp}] === END {name} ===\n")
 
-# -------------------- IP-based fallback --------------------
-def get_ip_location2():
-    try:
-        ip_info = requests.get("https://ipapi.co/json/", timeout=10, verify=False).json()
-        ip_info2 = requests.get("http://ip-api.com/json/", timeout=10).json()
-        return {"ipapi": ip_info, "ipapi2": ip_info2}
-    except Exception as e:
-        log("IP lookup failed", str(e))
-        return {"error": str(e)}
-# --- Step 1: Fetch the user's real IP in the browser ---
+# --- Step 1: Fetch the user's real IP only once per refresh ---
+# --- Step 1: Fetch the user's real IP (only once) ---
+if "user_ip" not in st.session_state:
+    st.session_state.user_ip = None  # initialize
+
+ip_data = streamlit_js_eval(
+    js_expressions="fetch('https://api.ipify.org?format=json').then(r => r.json())",
+    key="real_ip_fetch"  # use a stable key, not timestamp
+)
+
+if ip_data and "ip" in ip_data and st.session_state.user_ip is None:
+    st.session_state.user_ip = ip_data["ip"]
+    log("Browser IP fetch", ip_data["ip"])
+
+# convenience getter
 def get_user_ip():
-    try:
-        ip_data = streamlit_js_eval(
-            js_expressions="fetch('https://api.ipify.org?format=json').then(r => r.json())",
-            key="real_ip"
-        )
-        if ip_data and "ip" in ip_data:
-            return ip_data["ip"]
-    except Exception as e:
-        log("Browser IP fetch failed", e)
-    return None
-# --- Step 2: Lookup location using that IP ---
-def get_ip_location(ip=None):
+    return st.session_state.get("user_ip")
+
+log("IP fetch", get_user_ip())
+
+def get_ip_location():
     result = {}
-
-    # If no IP passed, fall back to server-detected IP (less accurate)
-    target = ip if ip else ""
-
+    myips=get_user_ip()
     try:
-        r1 = requests.get(f"https://ipapi.co/{target}/json/", timeout=10, verify=False)
-        if r1.status_code == 200 and r1.content.strip():
-            result["ipapi"] = r1.json()
-        else:
-            result["ipapi"] = {"error": f"Failed with status {r1.status_code}"}
-    except Exception as e:
-        result["ipapi"] = {"error": str(e)}
-
-    try:
-        r2 = requests.get(f"http://ip-api.com/json/{target}", timeout=10)
-        if r2.status_code == 200 and r2.content.strip():
-            result["ipapi2"] = r2.json()
-        else:
-            result["ipapi2"] = {"error": f"Failed with status {r2.status_code}"}
-    except Exception as e:
-        result["ipapi2"] = {"error": str(e)}
-
-    return result
-
-def get_ip_location3():
-    result = {}
-    try:
+        result["MyIp"] = myips
         r1 = requests.get("https://ipapi.co/json/", timeout=10, verify=False)
         if r1.status_code == 200 and r1.content.strip():
             result["ipapi"] = r1.json()
@@ -99,37 +73,53 @@ def get_ip_location3():
     except Exception as e:
         result["ipapi2"] = {"error": str(e)}
 
+    try:
+        r1 = requests.get(f"https://ipapi.co/{myips}/json/", timeout=10, verify=False)
+        if r1.status_code == 200 and r1.content.strip():
+            result["Realipapi"] = r1.json()
+        else:
+            result["Realipapi"] = {"error": f"Failed with status {r1.status_code}"}
+    except Exception as e:
+        result["Realipapi"] = {"error": str(e)}
+
+    try:
+        r2 = requests.get(f"http://ip-api.com/json/{myips}", timeout=10)
+        if r2.status_code == 200 and r2.content.strip():
+            result["Realipapi2"] = r2.json()
+        else:
+            result["Realipapi2"] = {"error": f"Failed with status {r2.status_code}"}
+    except Exception as e:
+        result["Realipapi2"] = {"error": str(e)}
+
     return result
 # --- Step 3: Combine ---
-user_ip = get_user_ip()
-#st.write("User IP (browser-detected):", user_ip)
-
-ip_location = get_ip_location(user_ip)
-#st.json(ip_location)
-#ip_location = get_ip_location()
+ip_location = get_ip_location()
+log("IP fetch", ip_location)
 
 # -------------------- Browser Geolocation --------------------
 def get_browser_geolocation(timeout_ms=10000):
     try:
         coords = streamlit_js_eval(
             js_expressions=f"""
-                navigator.geolocation.getCurrentPosition(
-                    p => resolve({{
-                        latitude: p.coords.latitude,
-                        longitude: p.coords.longitude,
-                        accuracy_m: p.coords.accuracy,
-                        altitude: p.coords.altitude,
-                        altitudeAccuracy: p.coords.altitudeAccuracy,
-                        heading: p.coords.heading,
-                        speed: p.coords.speed,
-                        timestamp: p.timestamp
-                    }}),
-                    err => reject(err.message),
-                    {{ enableHighAccuracy: true, timeout: {timeout_ms} }}
-                );
-            }})
-            """,
-            key="geo"
+                        new Promise((resolve, reject) => {{
+                            if (!navigator.geolocation) {{ reject('unsupported'); }}
+                            navigator.geolocation.getCurrentPosition(
+                                p => resolve({{
+                                    latitude: p.coords.latitude,
+                                    longitude: p.coords.longitude,
+                                    accuracy_m: p.coords.accuracy,
+                                    altitude: p.coords.altitude,
+                                    altitudeAccuracy: p.coords.altitudeAccuracy,
+                                    heading: p.coords.heading,
+                                    speed: p.coords.speed,
+                                    timestamp: p.timestamp
+                                }}),
+                                err => reject(err.message),
+                                {{ enableHighAccuracy: true, timeout: {timeout_ms} }}
+                            );
+                        }})
+                        """,
+            key="browser_geo_fetch"
         )
         payload = {"method": "geolocation", "server_time_utc": datetime.now(timezone.utc).isoformat()}
         if coords:
@@ -153,8 +143,7 @@ if not st.session_state.consent_given:
 
 # -------------------- Log Page Visit --------------------
 if "visit_logged" not in st.session_state:
-    user_ip2 = get_user_ip()
-    current_ip = get_ip_location(user_ip2)
+    current_ip = get_ip_location()
     current_geo = get_browser_geolocation()
     visit_payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
