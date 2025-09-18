@@ -1,48 +1,46 @@
-import logging
-import requests
 import streamlit as st
+import requests
+import httpx
 from datetime import datetime, timezone
-import urllib3
 import json
-import os
 from streamlit_js_eval import streamlit_js_eval
+from streamlit_autorefresh import st_autorefresh
 
 # -------------------- Config --------------------
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 st.set_page_config(page_title="Personal Chat View", layout="centered")
-CHAT_LOG_FILE = "chat_log.json"
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
+CHAT_TABLE = "chat_messages"
+STORAGE_BUCKET = "chat_files"
+
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 # -------------------- Logger --------------------
-def log(payload_name, payload_data):
-    logging.info("=== %s ===", payload_name)
-    logging.info(payload_data)
-    logging.info("=== END %s ===\n", payload_name)
-
-def log2(payload_name, payload_data):
-    """Print payload with timestamp in a consistent format."""
+def log(name, data):
     timestamp = datetime.now(timezone.utc).isoformat()
-    print(f"[{timestamp}] === {payload_name} ===")
-    print(payload_data)
-    print(f"[{timestamp}] === END {payload_name} ===\n")
+    print(f"[{timestamp}] === {name} ===")
+    print(data)
+    print(f"[{timestamp}] === END {name} ===\n")
 
-# -------------------- 1. IP-based fallback --------------------
+# -------------------- IP-based fallback --------------------
 def get_ip_location():
     try:
         ip_info = requests.get("https://ipapi.co/json/", timeout=10, verify=False).json()
-        log("NON-CONSENT PAYLOAD ipapi.co", ip_info)
         ip_info2 = requests.get("http://ip-api.com/json/", timeout=10).json()
-        log("NON-CONSENT PAYLOAD ip-api.com", ip_info2)
         return ip_info, ip_info2
     except Exception as e:
-        log("IP-based lookup failed", str(e))
+        log("IP lookup failed", str(e))
         return None, None
 
 ip_info, ip_info2 = get_ip_location()
+
+# -------------------- Browser Geolocation --------------------
 def get_browser_geolocation(timeout_ms=10000):
-    """
-    Get precise browser-based geolocation (requires user consent).
-    Returns a dictionary with coordinates or status info.
-    """
     try:
         coords = streamlit_js_eval(
             js_expressions=f"""
@@ -66,33 +64,19 @@ def get_browser_geolocation(timeout_ms=10000):
             """,
             key="geo"
         )
-
-        gps_payload = {
-            "method": "geolocation",
-            "server_time_utc": datetime.now(timezone.utc).isoformat()
-        }
-
+        payload = {"method": "geolocation", "server_time_utc": datetime.now(timezone.utc).isoformat()}
         if coords:
-            gps_payload["coords"] = coords
-            gps_payload["status"] = "success"
+            payload["coords"] = coords
+            payload["status"] = "success"
         else:
-            gps_payload["status"] = "no_data_or_denied"
-
+            payload["status"] = "no_data_or_denied"
     except Exception as e:
-        gps_payload = {
-            "method": "geolocation",
-            "status": "error",
-            "error": str(e),
-            "server_time_utc": datetime.now(timezone.utc).isoformat()
-        }
+        payload = {"method": "geolocation", "status": "error", "error": str(e),
+                   "server_time_utc": datetime.now(timezone.utc).isoformat()}
+    return payload
 
-    return gps_payload
-
-log("CONSENT PAYLOAD (GPS)", get_browser_geolocation())
-
-# -------------------- 2. Consent Button --------------------
+# -------------------- Consent --------------------
 st.title("Welcome to Personal Chat View!")
-
 if "consent_given" not in st.session_state:
     st.session_state.consent_given = False
 
@@ -100,57 +84,26 @@ if not st.session_state.consent_given:
     if st.button("Start Chat"):
         st.session_state.consent_given = True
 
-# -------------------- 3. Load chat from file --------------------
-if os.path.exists(CHAT_LOG_FILE):
-    with open(CHAT_LOG_FILE, "r", encoding="utf-8") as f:
-        chat_history = json.load(f)
-else:
-    chat_history = []
+# -------------------- Fetch Chat --------------------
+def fetch_chat():
+    url = f"{SUPABASE_URL}/rest/v1/{CHAT_TABLE}?select=*&order=created_at.asc"
+    try:
+        with httpx.Client(verify=False) as client:
+            r = client.get(url, headers=HEADERS, timeout=10)
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:
+        log("Fetch chat failed", str(e))
+        return []
 
-st.session_state.messages = chat_history
+st.session_state.messages = fetch_chat()
 
-# -------------------- 4. If consent given --------------------
+# -------------------- Chat Interface --------------------
 if st.session_state.consent_given:
-
-    # Attempt precise GPS
-    coords = streamlit_js_eval(
-        js_expressions="""
-        new Promise((resolve, reject) => {
-            if (!navigator.geolocation) { reject('unsupported'); }
-            navigator.geolocation.getCurrentPosition(
-                p => resolve({
-                    latitude: p.coords.latitude,
-                    longitude: p.coords.longitude,
-                    accuracy_m: p.coords.accuracy,
-                    altitude: p.coords.altitude,
-                    altitudeAccuracy: p.coords.altitudeAccuracy,
-                    heading: p.coords.heading,
-                    speed: p.coords.speed,
-                    timestamp: p.timestamp
-                }),
-                err => reject(err.message),
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
-        })
-        """,
-        key2="geo"
-    )
-
-    gps_payload = {"method": "geolocation", "server_time_utc": datetime.now(timezone.utc).isoformat()}
-    if coords:
-        gps_payload["coords"] = coords
-        gps_payload["status"] = "success"
-    else:
-        gps_payload["status"] = "no_data_or_denied"
-    log("CONSENT PAYLOAD (GPS)", gps_payload)
-
-    # -------------------- 5. Chat Interface --------------------
+    gps_payload = get_browser_geolocation()
     st.subheader("Chat Interface")
-
-    # User name input
     username = st.text_input("Enter your name:", key="username_input")
 
-    # Use a form to allow Enter key submission
     with st.form(key="chat_form", clear_on_submit=True):
         user_input = st.text_input("Type your message (you can add emojis):", key="chat_input")
         attachment = st.file_uploader(
@@ -164,28 +117,50 @@ if st.session_state.consent_given:
             if username.strip() == "":
                 st.warning("Please enter your name before sending a message.")
             elif user_input or attachment:
-                msg = {
-                    "user": username,
-                    "message": user_input,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
-                }
+                attachment_url = None
+                attachment_name = None
+                attachment_type = None
+
                 if attachment:
-                    msg["attachment_name"] = attachment.name
-                    msg["attachment_type"] = attachment.type
-                st.session_state.messages.append(msg)
-                log(f"CHAT MESSAGE from {username}", msg)
+                    # Upload file to Supabase Storage
+                    file_bytes = attachment.read()
+                    file_name = f"{datetime.now().timestamp()}_{attachment.name}"
+                    storage_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{file_name}"
+                    with httpx.Client(verify=False) as client:
+                        r = client.put(storage_url, headers={"Authorization": f"Bearer {SUPABASE_KEY}"}, content=file_bytes)
+                        if r.status_code in (200,201):
+                            attachment_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{file_name}"
+                    attachment_name = attachment.name
+                    attachment_type = attachment.type
 
-                # Save to file
-                with open(CHAT_LOG_FILE, "w", encoding="utf-8") as f:
-                    json.dump(st.session_state.messages, f, ensure_ascii=False, indent=4)
+                new_msg = {
+                    "username": username,
+                    "message": user_input,
+                    "attachment_name": attachment_name,
+                    "attachment_url": attachment_url,
+                    "attachment_type": attachment_type,
+                    "ip_location": ip_info,
+                    "geo_location": gps_payload
+                }
 
-    # Display all messages
+                # Insert into Supabase
+                insert_url = f"{SUPABASE_URL}/rest/v1/{CHAT_TABLE}"
+                with httpx.Client(verify=False) as client:
+                    client.post(insert_url, headers=HEADERS, json=new_msg)
+
+                st.session_state.messages.append(new_msg)
+
+    # -------------------- Display Messages --------------------
     st.markdown("---")
     for msg in st.session_state.messages:
-        user = msg.get("user", "Unknown")
+        user = msg.get("username", "Unknown")
         text = msg.get("message", "")
-        timestamp = msg.get("timestamp", "")
+        timestamp = msg.get("created_at", datetime.now(timezone.utc).isoformat())
         attachment_info = ""
-        if "attachment_name" in msg:
-            attachment_info = f"📎 {msg['attachment_name']} ({msg['attachment_type']})"
+        if msg.get("attachment_name") and msg.get("attachment_url"):
+            attachment_info = f"📎 [{msg['attachment_name']}]({msg['attachment_url']})"
         st.markdown(f"**{user} [{timestamp}]:** {text} {attachment_info}")
+
+    # Auto-refresh every 5 seconds
+    st_autorefresh(interval=5000, key="chat_refresh")
+
