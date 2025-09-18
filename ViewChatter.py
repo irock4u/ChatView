@@ -8,10 +8,8 @@ from streamlit_autorefresh import st_autorefresh
 # -------------------- Config --------------------
 st.set_page_config(page_title="Personal Chat View", layout="centered")
 
-#SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
-#SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
-SUPABASE_URL = "https://osalzsgfviwrhgqzpxdg.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zYWx6c2dmdml3cmhncXpweGRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTg3MzIsImV4cCI6MjA3Mzc5NDczMn0.gtFQdD8AmwbLOFmTma-s41iHQRykdvxcsndpDyyHBHQ"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
 
 CHAT_TABLE = "chat_messages"
 VISIT_TABLE = "page_visits"
