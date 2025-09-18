@@ -85,7 +85,7 @@ def get_browser_geolocation(timeout_ms=10000):
 log("CONSENT PAYLOAD (GPS)", get_browser_geolocation())
 
 # -------------------- 2. Consent Button --------------------
-st.title("Welcome to Personal View Chat!")
+st.title("Welcome to Personal Chat View!")
 
 if "consent_given" not in st.session_state:
     st.session_state.consent_given = False
