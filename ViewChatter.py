@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import httpx
 from datetime import datetime, timezone
-import json
 from streamlit_js_eval import streamlit_js_eval
 from streamlit_autorefresh import st_autorefresh
 
@@ -12,6 +11,7 @@ st.set_page_config(page_title="Personal Chat View", layout="centered")
 SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
 CHAT_TABLE = "chat_messages"
+VISIT_TABLE = "page_visits"
 STORAGE_BUCKET = "chat_files"
 
 HEADERS = {
@@ -32,12 +32,12 @@ def get_ip_location():
     try:
         ip_info = requests.get("https://ipapi.co/json/", timeout=10, verify=False).json()
         ip_info2 = requests.get("http://ip-api.com/json/", timeout=10).json()
-        return ip_info, ip_info2
+        return {"ipapi": ip_info, "ipapi2": ip_info2}
     except Exception as e:
         log("IP lookup failed", str(e))
-        return None, None
+        return {}
 
-ip_info, ip_info2 = get_ip_location()
+ip_location = get_ip_location()
 
 # -------------------- Browser Geolocation --------------------
 def get_browser_geolocation(timeout_ms=10000):
@@ -84,6 +84,20 @@ if not st.session_state.consent_given:
     if st.button("Start Chat"):
         st.session_state.consent_given = True
 
+# -------------------- Log Page Visit --------------------
+browser_geo = get_browser_geolocation()
+visit_payload = {
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "ip_location": ip_location,
+    "geo_location": browser_geo
+}
+visit_url = f"{SUPABASE_URL}/rest/v1/{VISIT_TABLE}"
+try:
+    with httpx.Client(verify=False) as client:
+        client.post(visit_url, headers=HEADERS, json=visit_payload)
+except Exception as e:
+    st.warning(f"Failed to log page visit: {e}")
+
 # -------------------- Fetch Chat --------------------
 def fetch_chat():
     url = f"{SUPABASE_URL}/rest/v1/{CHAT_TABLE}?select=*&order=created_at.asc"
@@ -100,7 +114,6 @@ st.session_state.messages = fetch_chat()
 
 # -------------------- Chat Interface --------------------
 if st.session_state.consent_given:
-    gps_payload = get_browser_geolocation()
     st.subheader("Chat Interface")
     username = st.text_input("Enter your name:", key="username_input")
 
@@ -122,13 +135,12 @@ if st.session_state.consent_given:
                 attachment_type = None
 
                 if attachment:
-                    # Upload file to Supabase Storage
                     file_bytes = attachment.read()
                     file_name = f"{datetime.now().timestamp()}_{attachment.name}"
                     storage_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{file_name}"
                     with httpx.Client(verify=False) as client:
                         r = client.put(storage_url, headers={"Authorization": f"Bearer {SUPABASE_KEY}"}, content=file_bytes)
-                        if r.status_code in (200,201):
+                        if r.status_code in (200, 201):
                             attachment_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{file_name}"
                     attachment_name = attachment.name
                     attachment_type = attachment.type
@@ -139,8 +151,8 @@ if st.session_state.consent_given:
                     "attachment_name": attachment_name,
                     "attachment_url": attachment_url,
                     "attachment_type": attachment_type,
-                    "ip_location": ip_info,
-                    "geo_location": gps_payload
+                    "ip_location": ip_location,
+                    "geo_location": browser_geo
                 }
 
                 # Insert into Supabase
@@ -161,6 +173,5 @@ if st.session_state.consent_given:
             attachment_info = f"📎 [{msg['attachment_name']}]({msg['attachment_url']})"
         st.markdown(f"**{user} [{timestamp}]:** {text} {attachment_info}")
 
-    # Auto-refresh every 5 seconds
+    # -------------------- Auto-refresh --------------------
     st_autorefresh(interval=5000, key="chat_refresh")
-
