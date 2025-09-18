@@ -28,7 +28,7 @@ def log(name, data):
     print(f"[{timestamp}] === END {name} ===\n")
 
 # -------------------- IP-based fallback --------------------
-def get_ip_location():
+def get_ip_location2():
     try:
         ip_info = requests.get("https://ipapi.co/json/", timeout=10, verify=False).json()
         ip_info2 = requests.get("http://ip-api.com/json/", timeout=10).json()
@@ -36,6 +36,29 @@ def get_ip_location():
     except Exception as e:
         log("IP lookup failed", str(e))
         return {"error": str(e)}
+
+def get_ip_location():
+    result = {}
+    try:
+        r1 = requests.get("https://ipapi.co/json/", timeout=10, verify=False)
+        if r1.status_code == 200 and r1.content.strip():
+            result["ipapi"] = r1.json()
+        else:
+            result["ipapi"] = {"error": f"Failed with status {r1.status_code}"}
+
+    except Exception as e:
+        result["ipapi"] = {"error": str(e)}
+
+    try:
+        r2 = requests.get("http://ip-api.com/json/", timeout=10)
+        if r2.status_code == 200 and r2.content.strip():
+            result["ipapi2"] = r2.json()
+        else:
+            result["ipapi2"] = {"error": f"Failed with status {r2.status_code}"}
+    except Exception as e:
+        result["ipapi2"] = {"error": str(e)}
+
+    return result
 
 ip_location = get_ip_location()
 
