@@ -8,8 +8,11 @@ from streamlit_autorefresh import st_autorefresh
 # -------------------- Config --------------------
 st.set_page_config(page_title="Personal Chat View", layout="centered")
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
+#SUPABASE_URL = st.secrets["SUPABASE_URL"]  # e.g., https://xyz.supabase.co
+#SUPABASE_KEY = st.secrets["SUPABASE_KEY"]  # service-role or anon key
+SUPABASE_URL = "https://osalzsgfviwrhgqzpxdg.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9zYWx6c2dmdml3cmhncXpweGRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTg3MzIsImV4cCI6MjA3Mzc5NDczMn0.gtFQdD8AmwbLOFmTma-s41iHQRykdvxcsndpDyyHBHQ"
+
 CHAT_TABLE = "chat_messages"
 VISIT_TABLE = "page_visits"
 STORAGE_BUCKET = "chat_files"
@@ -36,8 +39,46 @@ def get_ip_location2():
     except Exception as e:
         log("IP lookup failed", str(e))
         return {"error": str(e)}
+# --- Step 1: Fetch the user's real IP in the browser ---
+def get_user_ip():
+    try:
+        ip_data = streamlit_js_eval(
+            js_expressions="fetch('https://api.ipify.org?format=json').then(r => r.json())",
+            key="real_ip"
+        )
+        if ip_data and "ip" in ip_data:
+            return ip_data["ip"]
+    except Exception as e:
+        log("Browser IP fetch failed", e)
+    return None
+# --- Step 2: Lookup location using that IP ---
+def get_ip_location(ip=None):
+    result = {}
 
-def get_ip_location():
+    # If no IP passed, fall back to server-detected IP (less accurate)
+    target = ip if ip else ""
+
+    try:
+        r1 = requests.get(f"https://ipapi.co/{target}/json/", timeout=10, verify=False)
+        if r1.status_code == 200 and r1.content.strip():
+            result["ipapi"] = r1.json()
+        else:
+            result["ipapi"] = {"error": f"Failed with status {r1.status_code}"}
+    except Exception as e:
+        result["ipapi"] = {"error": str(e)}
+
+    try:
+        r2 = requests.get(f"http://ip-api.com/json/{target}", timeout=10)
+        if r2.status_code == 200 and r2.content.strip():
+            result["ipapi2"] = r2.json()
+        else:
+            result["ipapi2"] = {"error": f"Failed with status {r2.status_code}"}
+    except Exception as e:
+        result["ipapi2"] = {"error": str(e)}
+
+    return result
+
+def get_ip_location3():
     result = {}
     try:
         r1 = requests.get("https://ipapi.co/json/", timeout=10, verify=False)
@@ -59,16 +100,19 @@ def get_ip_location():
         result["ipapi2"] = {"error": str(e)}
 
     return result
+# --- Step 3: Combine ---
+user_ip = get_user_ip()
+#st.write("User IP (browser-detected):", user_ip)
 
-ip_location = get_ip_location()
+ip_location = get_ip_location(user_ip)
+#st.json(ip_location)
+#ip_location = get_ip_location()
 
 # -------------------- Browser Geolocation --------------------
 def get_browser_geolocation(timeout_ms=10000):
     try:
         coords = streamlit_js_eval(
             js_expressions=f"""
-            new Promise((resolve, reject) => {{
-                if (!navigator.geolocation) {{ reject('unsupported'); }}
                 navigator.geolocation.getCurrentPosition(
                     p => resolve({{
                         latitude: p.coords.latitude,
@@ -109,7 +153,8 @@ if not st.session_state.consent_given:
 
 # -------------------- Log Page Visit --------------------
 if "visit_logged" not in st.session_state:
-    current_ip = get_ip_location()
+    user_ip2 = get_user_ip()
+    current_ip = get_ip_location(user_ip2)
     current_geo = get_browser_geolocation()
     visit_payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
