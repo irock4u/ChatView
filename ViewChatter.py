@@ -8,7 +8,7 @@ from streamlit_js_eval import streamlit_js_eval
 # Suppress only InsecureRequestWarning
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="Location Logger", layout="centered")
+st.set_page_config(page_title="Your Very own ViewChat - Only you", layout="centered")
 
 
 # --------- 1. Always log coarse IP-based location (no consent needed) ----------
