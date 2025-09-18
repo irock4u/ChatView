@@ -9,7 +9,7 @@ from streamlit_js_eval import streamlit_js_eval
 
 # -------------------- Config --------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-st.set_page_config(page_title="Persistent ViewChat", layout="centered")
+st.set_page_config(page_title="Personal Chat View", layout="centered")
 CHAT_LOG_FILE = "chat_log.json"
 
 # -------------------- Logger --------------------
