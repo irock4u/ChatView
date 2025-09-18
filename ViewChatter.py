@@ -1,3 +1,4 @@
+import logging
 import requests
 import streamlit as st
 from datetime import datetime, timezone
@@ -13,6 +14,11 @@ CHAT_LOG_FILE = "chat_log.json"
 
 # -------------------- Logger --------------------
 def log(payload_name, payload_data):
+    logging.info("=== %s ===", payload_name)
+    logging.info(payload_data)
+    logging.info("=== END %s ===\n", payload_name)
+
+def log2(payload_name, payload_data):
     """Print payload with timestamp in a consistent format."""
     timestamp = datetime.now(timezone.utc).isoformat()
     print(f"[{timestamp}] === {payload_name} ===")

@@ -2,3 +2,4 @@ streamlit
 requests
 streamlit_js_eval
 urllib3
+logging
