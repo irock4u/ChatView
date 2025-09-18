@@ -85,10 +85,11 @@ if not st.session_state.consent_given:
         st.session_state.consent_given = True
 
 # -------------------- Log Page Visit --------------------
+ip_location2 = get_ip_location()
 browser_geo = get_browser_geolocation()
 visit_payload = {
     "created_at": datetime.now(timezone.utc).isoformat(),
-    "ip_location": ip_location,
+    "ip_location": ip_location2,
     "geo_location": browser_geo
 }
 visit_url = f"{SUPABASE_URL}/rest/v1/{VISIT_TABLE}"
