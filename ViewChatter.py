@@ -155,8 +155,7 @@ if "visit_logged" not in st.session_state:
         st.session_state.visit_logged = True  # ensure only logged once per session   
     except Exception as e:
         st.warning(f"Failed to log page visit: {e}")   
-
-if "visit_logged" not in st.session_state:
+        
     current_ip = get_ip_location()
     current_geo = get_browser_geolocation()
     visit_payload = {
